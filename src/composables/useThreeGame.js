@@ -2,6 +2,8 @@ import * as THREE from 'three'
 import { ref } from 'vue'
 import { createPlayer } from '../game/Player'
 import { createObstacle } from '../game/Obstacle'
+import { createCoin } from '../game/Coin'   
+import { createHeart } from '../game/PowerUp' 
 
 export function useThreeGame(canvasRef) {
   // Estado para Vue (HUD)
@@ -9,11 +11,14 @@ export function useThreeGame(canvasRef) {
   const best = ref(Number(localStorage.getItem('bestScore') ?? 0))
   const speed = ref(7) // unidades/segundo
   const isGameOver = ref(false)
+  const lives = ref(3) // Sistema de vidas
 
   // Three.js
   let scene, camera, renderer
   let animationId = null
   let clock = null
+
+  const worldObjects = [] // Array genérico para obstáculos y monedas
 
   // Entidades
   let player = null
@@ -30,9 +35,13 @@ export function useThreeGame(canvasRef) {
 
   // Config juego
   const LANES = [-2, 0, 2]
-  const SPAWN_Z = -35
+  const SPAWN_Z = -40 // Generar más lejos
   const DESPAWN_Z = 10
   const PLAYER_Z = 0
+
+  // Variables de lógica
+  let distanceSinceLastSpawn = 0 // Control de spawn por distancia
+  let invulnerableTime = 0       // Para parpadeo tras golpe
 
   // Física simple salto
   const GRAVITY = -20
@@ -41,6 +50,9 @@ export function useThreeGame(canvasRef) {
   // Colisiones
   const playerBox = new THREE.Box3()
   const tempBox = new THREE.Box3()
+
+  // Audio (Placeholder simple)
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)()
 
   function initThree() {
     scene = new THREE.Scene()
@@ -120,7 +132,10 @@ export function useThreeGame(canvasRef) {
 
     if (e.code === 'ArrowLeft' || e.code === 'KeyA') moveLane(-1)
     if (e.code === 'ArrowRight' || e.code === 'KeyD') moveLane(1)
-    if (e.code === 'Space') jump()
+    if (e.code === 'Space') {
+      jump()
+      playSound('jump')
+    }
   }
 
   function onKeyUp(e) {
@@ -152,66 +167,172 @@ export function useThreeGame(canvasRef) {
     scene.add(o)
   }
 
-
-  function updatePlayer(dt) {
-    // Suavizado lateral hacia el carril objetivo
-    const targetX = player.userData.targetX
-    player.position.x = THREE.MathUtils.damp(player.position.x, targetX, 12, dt)
-
-    // Salto simple
-    if (player.userData.isJumping) {
-      player.userData.vy += GRAVITY * dt
-      player.position.y += player.userData.vy * dt
-
-      if (player.position.y <= player.userData.groundY) {
-        player.position.y = player.userData.groundY
-        player.userData.isJumping = false
-        player.userData.vy = 0
-      }
+  // --- NUEVA LÓGICA DE SPAWN ---
+  function spawnRandomEntity() {
+    const lane = LANES[Math.floor(Math.random() * LANES.length)]
+    const r = Math.random()
+    
+    let obj = null
+    
+    if (r > 0.8) {
+        // 20% probabilidad de Moneda
+        obj = createCoin()
+    } else if (r > 0.95) {
+        // 5% probabilidad de Vida (muy raro)
+        obj = createHeart()
+    } else {
+        // El resto obstáculo
+        obj = createObstacle()
     }
+    
+    obj.position.set(lane, obj.position.y, SPAWN_Z)
+    worldObjects.push(obj)
+    scene.add(obj)
+  }
+
+
+  // nueva funcion para sonido
+  function playSound(type) {
+    // Aquí iría la carga real de sonidos. Esto es un sintetizador básico para no requerir archivos mp3
+    if(audioCtx.state === 'suspended') audioCtx.resume();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    
+    if (type === 'jump') {
+        osc.frequency.setValueAtTime(400, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(600, audioCtx.currentTime + 0.1);
+    } else if (type === 'coin') {
+        osc.frequency.setValueAtTime(1200, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(1800, audioCtx.currentTime + 0.1);
+    } else if (type === 'hit') {
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(100, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 0.3);
+    }
+    
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.15);
+  }
+
+
+ function updatePlayer(dt) {
+      // (Lógica de movimiento lateral y salto igual que antes...)
+      const targetX = player.userData.targetX
+      player.position.x = THREE.MathUtils.damp(player.position.x, targetX, 10, dt)
+
+      if (player.userData.isJumping) {
+          player.userData.vy += -30 * dt // Gravity
+          player.position.y += player.userData.vy * dt
+          if (player.position.y <= 0.45) {
+              player.position.y = 0.45
+              player.userData.isJumping = false
+              player.userData.vy = 0
+          }
+      }
+
+      // Parpadeo de invulnerabilidad
+      if (invulnerableTime > 0) {
+          invulnerableTime -= dt
+          if (invulnerableTime <= 0) {
+              player.material.emissive.setHex(0x000000) // Restaurar color
+          } else {
+              // Parpadeo rápido
+              const blink = Math.sin(Date.now() / 50) > 0
+              player.visible = blink
+          }
+      } else {
+          player.visible = true
+      }
   }
 
   function updateWorld(dt) {
-    // Aumenta dificultad progresiva
-    speed.value = Math.min(50, speed.value + dt * 0.25)
+    // Aumentar velocidad progresivamente
+    speed.value += dt * 0.1
 
-    // Spawn con timers (ajusta la frecuencia)
-    obstacleTimer += dt
-
-    if (obstacleTimer  >= 0.9) {
-      obstacleTimer = 0
-      spawnObstacle()
+    // Punto 1: Generación basada en DISTANCIA, no en tiempo.
+    // Cuanto más rápido vas, más distancia recorres, manteniendo el ritmo visual constante.
+    distanceSinceLastSpawn += speed.value * dt
+    
+    // Generar un objeto cada 15 metros virtuales
+    if (distanceSinceLastSpawn > 15) {
+        distanceSinceLastSpawn = 0
+        spawnRandomEntity()
     }
 
-    // Mover obstáculos/monedas hacia el jugador
+    // Mover objetos
     const dz = speed.value * dt
-
-    for (let i = obstacles.length - 1; i >= 0; i--) {
-      const o = obstacles[i]
+    for (let i = worldObjects.length - 1; i >= 0; i--) {
+      const o = worldObjects[i]
       o.position.z += dz
+      
+      // Rotación de monedas
+      if (o.userData.type === 'coin' || o.userData.type === 'heart') {
+          o.rotation.y += dt * 3
+      }
+
       if (o.position.z > DESPAWN_Z) {
         scene.remove(o)
-        obstacles.splice(i, 1)
+        worldObjects.splice(i, 1)
       }
     }
-
-    // “Efecto movimiento” del suelo (opcional sencillo): moverlo y reciclar
+    
+    // Loop suelo
     ground.position.z += dz
     if (ground.position.z > 0) ground.position.z = -20
   }
 
   function checkCollisions() {
-    // Caja del jugador
-    playerBox.setFromObject(player)
+    if (invulnerableTime > 0) return // Si es invulnerable, ignorar colisiones malas
 
-    // Obstáculos
-    for (let i = 0; i < obstacles.length; i++) {
-      tempBox.setFromObject(obstacles[i])
+    const playerBox = new THREE.Box3().setFromObject(player)
+    const tempBox = new THREE.Box3()
+
+    for (let i = worldObjects.length - 1; i >= 0; i--) {
+      const obj = worldObjects[i]
+      tempBox.setFromObject(obj)
+
       if (playerBox.intersectsBox(tempBox)) {
-        gameOver()
-        return
+        handleCollision(obj, i)
       }
     }
+  }
+
+  function handleCollision(obj, index) {
+      const type = obj.userData.type
+
+      if (type === 'obstacle') {
+          // Punto 4: Sistema de vidas
+          lives.value--
+          playSound('hit')
+          
+          // Eliminar el obstáculo chocado para no chocar 2 veces
+          scene.remove(obj)
+          worldObjects.splice(index, 1)
+          
+          if (lives.value <= 0) {
+              gameOver()
+          } else {
+              // Invulnerabilidad temporal
+              invulnerableTime = 1.5 
+              // Efecto visual (cambiar color temporalmente)
+              player.material.emissive.setHex(0xff0000)
+          }
+      } 
+      else if (type === 'coin') {
+          // Punto 2: Monedas
+          score.value += 50
+          playSound('coin')
+          scene.remove(obj)
+          worldObjects.splice(index, 1)
+      }
+      else if (type === 'heart') {
+          lives.value = Math.min(lives.value + 1, 3) // Max 3 vidas
+          playSound('coin') // Reusamos sonido
+          scene.remove(obj)
+          worldObjects.splice(index, 1)
+      }
   }
 
   function gameOver() {
@@ -229,16 +350,15 @@ export function useThreeGame(canvasRef) {
 
   function animate() {
     animationId = requestAnimationFrame(animate)
-
     const dt = clock.getDelta()
 
     if (!isGameOver.value) {
       updatePlayer(dt)
       updateWorld(dt)
       checkCollisions()
-      updateScore(dt)
+      // Score por distancia también
+      score.value += Math.floor(speed.value * dt) 
     }
-
     renderer.render(scene, camera)
   }
 
@@ -248,22 +368,19 @@ export function useThreeGame(canvasRef) {
   }
 
   function resetGame() {
-    score.value = 0
-    speed.value = 7
-    isGameOver.value = false
-
-    clearEntities()
-
-    // Reset jugador
-    player.position.set(0, 0.45, PLAYER_Z)
-    player.userData.targetX = 0
-    player.userData.isJumping = false
-    player.userData.vy = 0
-
-    // Reset suelo
-    ground.position.z = -20
-
-    obstacleTimer = 0
+      // Limpiar objetos
+      worldObjects.forEach(o => scene.remove(o))
+      worldObjects.length = 0
+      
+      score.value = 0
+      speed.value = 10
+      lives.value = 3
+      isGameOver.value = false
+      invulnerableTime = 0
+      
+      player.position.set(0, 0.45, 0)
+      player.material.emissive.setHex(0x000000)
+      player.visible = true
   }
 
   function start() {
@@ -294,12 +411,13 @@ export function useThreeGame(canvasRef) {
   }
 
   return {
-    start,
-    stop,
-    restart,
-    score,
-    best,
-    speed,
-    isGameOver
+    start: () => { initThree(); animate() },
+    stop: () => { /* limpieza */ cancelAnimationFrame(animationId) },
+    restart: resetGame,
+    score, 
+    best, 
+    speed, 
+    isGameOver, 
+    lives 
   }
 }

@@ -4,12 +4,15 @@
       <div><b>Puntuación:</b> {{ score }}</div>
       <div><b>Récord:</b> {{ best }}</div>
       <div><b>Velocidad:</b> {{ speed.toFixed(1) }}</div>
+      <div class="lives">
+        <span v-for="n in 3" :key="n" :class="{ lost: n > lives }">❤</span>
+      </div>
     </div>
 
     <div v-if="isGameOver" class="gameover">
-      <h2>Game Over</h2>
-      <button @click="$emit('restart')">Reiniciar</button>
-      <p class="hint">Controles: ← → o A/D para moverte · Espacio para saltar</p>
+      <h2>¡Te has chocado!</h2>
+      <p>Puntuación Final: {{ Math.floor(score) }}</p>
+      <button @click="$emit('restart')">Intentar de nuevo</button>
     </div>
 
     <div v-else class="hint">
@@ -24,11 +27,26 @@ defineProps({
   score: { type: Number, required: true },
   best: { type: Number, required: true },
   speed: { type: Number, required: true },
-  isGameOver: { type: Boolean, required: true }
+  isGameOver: { type: Boolean, required: true },
+  lives: { type: Number, required: true }
 })
 </script>
 
 <style scoped>
+/* Añadir estilos para corazones */
+.lives {
+  font-size: 1.2rem;
+}
+
+.lives span {
+  margin-right: 4px;
+}
+
+.lives span.lost {
+  opacity: 0.2;
+  filter: grayscale(100%);
+}
+
 .hud {
   position: absolute;
   left: 12px;

@@ -2,13 +2,7 @@
   <div class="app">
     <canvas ref="canvas" class="game-canvas"></canvas>
 
-    <GameHUD
-      :score="score"
-      :best="best"
-      :speed="speed"
-      :isGameOver="isGameOver"
-      @restart="restart"
-    />
+    <GameHUD :score="score" :best="best" :speed="speed" :lives="lives" :isGameOver="isGameOver" @restart="restart" />
   </div>
 </template>
 
@@ -19,14 +13,29 @@ import { useThreeGame } from './composables/useThreeGame'
 
 const canvas = ref(null)
 
-const { start, stop, restart, score, best, speed, isGameOver } = useThreeGame(canvas)
+const { start, stop, restart, score, best, speed, lives, isGameOver } = useThreeGame(canvas)
 
 onMounted(() => start())
 onBeforeUnmount(() => stop())
 </script>
 
 <style>
-html, body, #app { height: 100%; margin: 0; }
-.app { position: relative; height: 100%; overflow: hidden; }
-.game-canvas { width: 100%; height: 100%; display: block; }
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+.app {
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+}
+
+.game-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
 </style>
