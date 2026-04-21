@@ -19,7 +19,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import GameHUD from './components/GameHUD.vue'
 import { useThreeGame } from './composables/useThreeGame'
 import { useBiometrics } from './composables/useBiometrics'
@@ -31,7 +31,15 @@ const pipVideoRef = ref(null)
 
 // Composables
 const { start, stop, restart, score, best, speed, lives, isGameOver } = useThreeGame(canvas)
-const { isReady, statusMessage, currentEmotion, initBiometrics, startScanning, videoStream } = useBiometrics()
+const { isReady, statusMessage, currentEmotion, initBiometrics, startScanning, videoStream, finishSession } = useBiometrics()
+
+// Vigilamos el fin de la partida para cerrar sesión en Laravel
+watch(isGameOver, (newValue) => {
+  if (newValue === true) {
+    console.log("Juego terminado. Cerrando sesión...");
+    finishSession(Math.floor(score.value));
+  }
+})
 
 // Ciclo de vida
 onMounted(async () => {
